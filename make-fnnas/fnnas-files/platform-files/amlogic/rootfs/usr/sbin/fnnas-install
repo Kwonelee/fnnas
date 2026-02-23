@@ -42,7 +42,7 @@
 # Use mainline u-boot by default (-m)
 auto_mainline_uboot="no"
 # Use ampart partition tool by default (-a)
-use_ampart="no"
+use_ampart="yes"
 # Show all device list by default (-l)
 show_all_list="no"
 
@@ -609,12 +609,12 @@ create_partition() {
     elif [[ -n "${MYBOX_UBOOT}" && -f "${MYBOX_UBOOT}" ]]; then
         echo -e "${INFO} 03. Write the mybox bootloader: [ ${MYBOX_UBOOT} ]"
         dd if="${MYBOX_UBOOT}" of="${DEV_EMMC}" conv=fsync bs=1 count=444
-        dd if="${MYBOX_UBOOT}" of="${DEV_EMMC}" conv=fsync bs=512 skip=1 seek=1
+        dd if="${MYBOX_UBOOT}" of="${DEV_EMMC}" conv=fsync bs=512 skip=1 seek=1 count=8191
     fi
     [[ "${?}" -eq "0" ]] || error_msg "Failed to write bootloader using [ dd ]."
 
-    # Generate a random disk signature and write it to the eMMC at offset 440
-    dd if=/dev/urandom of="${DEV_EMMC}" bs=1 count=4 seek=440 conv=notrunc status=none
+    # Set the MBR Disk Signature to match FAT_ID_RAW for PARTUUID consistency
+    echo "label-id: 0x${FAT_ID_RAW}" | sfdisk "${DEV_EMMC}" >/dev/null 2>&1
     sync && sleep 3
 }
 
@@ -670,6 +670,14 @@ copy_bootfs() {
         BOOT_CONF="extlinux.conf"
         sed -i "s|root=.*console=ttyAML0|root=${uenv_mount_string} console=ttyAML0|g" ${boot_extlinux_file}
         sed -i "s|meson.*.dtb|${FDTFILE}|g" ${boot_extlinux_file}
+    }
+
+    # Edit the fnEnv.txt
+    fnenv_conf_file="${DIR_INSTALL}/fnEnv.txt"
+    [[ -f "${fnenv_conf_file}" ]] && {
+        sed -i "s|\(fdtfile=.*\/\)[^/]*$|\1${FDTFILE}|g" ${fnenv_conf_file}
+        sed -i "s|^instdisk_bootuuid=.*|instdisk_bootuuid=${FAT_ID_RAW}-01|g" ${fnenv_conf_file}
+        sed -i "s|^instdisk_rootuuid=.*|instdisk_rootuuid=${FAT_ID_RAW}-02|g" ${fnenv_conf_file}
     }
 
     # Copy u-boot.ext and u-boot.emmc
